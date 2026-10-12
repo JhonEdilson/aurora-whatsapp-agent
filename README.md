@@ -1,70 +1,130 @@
 # Aurora: agente de WhatsApp con RAG para una academia de inglés
 
+Agente conversacional en producción desde el 15 de enero de 2026 para una academia de inglés
+con dos sedes en Antioquia, Colombia. Atiende el WhatsApp de la academia, responde
+con la información oficial, califica a cada persona y le pasa al equipo solo a quien está
+listo para inscribirse o necesita a un humano.
+
+## Resultados en producción
+
+15 de enero a 10 de octubre de 2026 (269 días), sin tráfico de prueba, cada persona contada
+una vez:
+
+- **2.066 mensajes** de **339 personas**
+- **98,9% de autonomía**: 23 mensajes (de 14 personas) pasaron al equipo. Ningún mes bajó de 97,5%.
+- **81 personas interesadas** entregadas al equipo: 52 pidieron clase demo, 20 familias dejaron
+  sus datos para el programa infantil y 13 pidieron inscripción directa
+- **$21.757.000 COP de ingreso potencial**: personas con datos completos para inscribirse,
+  a precio de matrícula. No son pagos confirmados.
+- **Hora pico: 11 am.** El grueso entra en plena jornada de clases: el valor del agente es la
+  capacidad, no el horario.
+- **18 personas con username** de WhatsApp atendidas desde que se soportó el cambio de Meta
+  (sección "Agosto 2026")
+
+Las cifras salen de un workflow de informe que se corrigió en octubre de 2026: contaba el
+tráfico de prueba, contaba leads por mensaje en lugar de por persona y agrupaba las horas en
+UTC. La consulta nueva se validó contra un informe que el cliente ya había recibido: la
+diferencia fue exactamente el tráfico de prueba.
+
 ## Arquitectura
 
-El sistema es un agente conversacional de customer support 24/7 construido sobre la plataforma de automatización n8n y conectado mediante la API oficial de WhatsApp (Meta), responde usando la base de conocimiento ingestada a la base de datos de MongoDB Atlas Vector Store mediante la técnica de RAG (retrieval augmented generation).
+El sistema es un agente conversacional 24/7 construido sobre n8n y conectado a la API oficial
+de WhatsApp (Meta). Responde usando una base de conocimiento vectorizada en MongoDB Atlas Vector
+Search mediante RAG (retrieval augmented generation).
 
 ### Flujo
 
-1. Mensaje entra por el canal de WhatsApp
-2. Un conjunto de nodos se encargan de extraer y pasar por el workflow la información relevante extraída de la conversación tales como número de teléfono, nombre, nivel, intención, ubicación, etc.
-3. Se hace una query a la base de datos, si el usuario no existe: se crea, si existe: se actualiza la información.
-4. Después de eso el sistema hace una búsqueda vectorial a la KB, la reordena con Cohere Rerank a un top 4 de resultados más relevantes.
-5. El agente haciendo uso del modelo gpt-4o-mini de OpenAI procesa el texto en el turno correspondiente y en base a sus instrucciones, y los resultados obtenidos en la búsqueda vectorial, decide qué acciones tomar y genera la respuesta correspondiente.
-6. Enrutamiento por intención: una vez el agente detecta la intención (demo, clase para niños inscripción directa, o escalamiento a humano), el sistema notifica al equipo por Slack, registra la interacción, y responde cada rama con su propia acción, salvo FAQ que solo registra y responde.
+1. El mensaje entra por WhatsApp. Si es audio, se transcribe.
+2. La identidad del usuario se resuelve una sola vez: teléfono si existe, identificador de
+   usuario de Meta (BSUID) si la persona usa nombre de usuario. Todos los nodos leen de ahí.
+3. Un extractor (LLM) saca del mensaje nombre, nivel, intención y sede, y el perfil se crea
+   o se actualiza en MongoDB.
+4. Búsqueda vectorial sobre la KB (top 20) y reordenamiento con Cohere Rerank (top 4).
+5. El agente (gpt-4o-mini) responde con el contexto recuperado, la memoria de la conversación
+   y sus instrucciones. Cuando la persona completa los datos de un flujo, emite una etiqueta.
+6. Enrutamiento por etiqueta (demo, programa infantil, inscripción directa o humano): alerta
+   a Slack con el resumen del caso, registro de la interacción y respuesta. Las preguntas
+   generales solo se registran y se responden.
+7. La respuesta se parte en mensajes cortos antes de enviarse, para que lea como una
+   conversación y no como un bloque.
 
 ### Componentes
 
-1. Orquestación: n8n, workflows visuales y conexiones mediante APIs/Webhooks.
-2. LLM: gpt-4o-mini como modelo principal de razonamiento del agente, elegido por costo-beneficio y un razonamiento medio aceptable para el propósito principal.
-3. Persistencia y RAG: MongoDB, con colecciones separadas para: historial de conversaciones, logs, información de prospecto, base de conocimiento.
+1. Orquestación: n8n self-hosted, workflows visuales y conexiones por API y webhooks.
+2. LLM: gpt-4o-mini para el agente y el extractor, elegido por costo-beneficio con un
+   razonamiento suficiente para el caso.
+3. Persistencia y RAG: MongoDB Atlas, con colecciones separadas para historial de
+   conversaciones, logs, perfiles y base de conocimiento.
+4. Envío: HTTP Request directo a la API de WhatsApp. El nodo nativo de n8n no puede escribirle
+   a un usuario que solo tiene nombre de usuario.
 
 ## Decisión de diseño
 
-Contexto: El agente necesitaba la capacidad de mantener el contexto/hilo conversacional entre sesiones, el volumen esperado era bajo (<300 mensajes al mes).
+**Contexto:** el agente necesitaba mantener el hilo conversacional entre sesiones con un volumen
+bajo, del orden de cientos de mensajes al mes.
 
-Opciones consideradas: Se consideró Supabase, pero no se exploró a profundidad esta opción. La otra opción era MongoDB (NoSQL) con Atlas vector store para el RAG y colecciones para historial de conversaciones, logs, información del usuario, etc.
+**Opciones consideradas:** Supabase, que no se exploró a fondo, y MongoDB Atlas con Vector
+Search para el RAG y colecciones para historial, logs y perfiles.
 
-Decisión: Se optó por MongoDB (NoSQL) con Atlas vector store para el RAG ya que ofrecía las capacidades requeridas para solucionar el problema y colecciones para almacenar los datos.
+**Decisión:** MongoDB Atlas. Cubría el RAG y el almacenamiento en un solo servicio.
 
-Consecuencia asumida: Se pierden funciones y herramientas ofrecidas en Supabase para desarrollo agéntico, además de las ventajas que pueda ofrecer usar una base de datos que corra sobre PostgreSQL como es el caso de Supabase.
+**Consecuencia asumida:** se pierden las herramientas de Supabase para desarrollo agéntico y
+las ventajas de una base relacional sobre PostgreSQL.
+
+## Agosto 2026: tres problemas en producción
+
+**1. Usuarios con nombre de usuario.** Meta introdujo usernames y el webhook dejó de traer el
+teléfono de esas personas. Siete nodos leían el webhook directo y uno lanzaba una excepción:
+la persona escribía y no recibía nada. Un identificador vacío compartido habría mezclado
+conversaciones de personas distintas. El arreglo resolvió la identidad en un solo punto y
+movió el envío a HTTP Request. Una primera regla ("si llega BSUID, no hay teléfono") se
+descartó con payloads reales, porque el BSUID llega siempre. Resultado: 18 personas atendidas
+que antes no habrían recibido respuesta, 13 de las 27 de septiembre.
+
+**2. La base de conocimiento le ganaba al prompt.** Se perdían leads porque el agente no
+emitía la etiqueta de cierre. El primer arreglo fue en el prompt, y el banco de evals lo midió:
+30 a 36 aciertos de 66, dentro del 42% de varianza entre corridas, o sea sin conclusión. Los
+ceros sí concluyeron: dos casos fallaron 3 de 3 en las dos corridas, ignorando la instrucción
+12 de 12 veces. El arreglo pasó a la KB, re-cortada por par pregunta/respuesta (antes se cortaba
+a ciegas cada 1000 caracteres). El re-corte destapó 4 chunks que nunca llegaban al agente.
+
+**3. Incidente: bucle de acuses.** Una rama de fallback atrapaba los acuses de estado de Meta,
+respondía, y cada respuesta generaba tres acuses nuevos. Se contuvo el mismo día y se arregló
+con una regla explícita sobre el tipo de mensaje. Lección: se verificaba que la API respondía
+200, no que el chat recibiera la respuesta.
 
 ## Qué mediría distinto con evals
 
-1. Tiempos de respuesta del agente: Actualmente no se mide el tiempo de respuesta al darse un cambio aplicado en el workflow ya sea: un cambio de modelo del agente conversacional principal, actualización de nodos code, cambiar o quitar más pasos en el flujo, top N rank de chunks en Cohere Rerank, etc.
+Lo que ya existe (agosto 2026):
 
-- Qué se mide: Tiempo de respuesta.
-- Umbral/Verificación: Baseline de tiempo de respuesta actual vs tiempo después del cambio. Aquí se concluye si el cambio mejoró el tiempo de respuesta o no.
-- Cómo se mide: 10 queries predefinidas en una hoja de Excel en línea, contiene campos de respuesta del agente, tiempo de respuesta del agente, semáforo rojo/amarillo/verde para indicar si fue buena, neutra o mala. Se ejecuta el mismo conjunto de queries antes y después de cada cambio al workflow para tener una baseline y poder comparar.
+- **Pruebas offline sobre el JSON real del workflow:** estructura, código real de los nodos Code
+  y expresiones de n8n evaluadas como JavaScript. Detectan el error antes de importar.
+- **Banco de evals del agente:** 66 casos con la etiqueta esperada, un marcador de corridas que
+  señala filas inestables y un gate de PII sobre los datos. Primera lección: con 42% de varianza,
+  un cambio solo se acepta cuando mueve casos de 0 de N, no cuando sube un promedio.
 
-2. Testing de edge cases documentados y sin documentar automático: Actualmente la única forma de evaluar un edge case es realizarlo de manera manual, se evalúa el edge case actual, pero no se tiene un método para evaluar o identificar si el cambio aplicado en el workflow no rompió algún otro edge case, a menos que se hagan manualmente uno por uno.
+Lo que falta:
 
-- Qué se mide: edge cases documentados y sin documentar (el "¿qué pasa si...?"). Por cada uno defines cómo se vería el resultado/decisión óptima del agente, y lo calificas Verde (pasa) o Rojo (no pasa). Los edge cases se priorizan en alta/media/baja.
-- Umbral/Verificación: Alta y media prioridad, 100% en verde. Baja prioridad, 75% en verde. Si un edge case de alta prioridad cae en Rojo, el cambio se deshace y se revisa.
-- Cómo se mide: Crear una base de datos separada de pruebas, y un workflow que ejecute los edge cases en paralelo.
-
-3. MongoDB backups manuales → medible
-
-- El problema: hoy el backup es manual, así que ante corrupción de datos dependes del último backup que alguien haya hecho a mano.
-- Solución propuesta: un trigger en n8n que dispara un backup automático cada vez que un workflow escribe o afecta MongoDB.
-- Cómo se verifica que funcionó: cada acción que toca MongoDB activa la secuencia de backup, con una nota al pie con la causa. Alternativa: backup programado por schedule (cada semana, cada 2 días, etc.) en vez de por evento.
+1. **Tiempo de respuesta.** Hoy no se mide antes y después de cada cambio (modelo, nodos, top N
+   del rerank). Se mediría con las mismas consultas del banco y una línea base por cambio.
+2. **Regresión automática de edge cases.** Cada edge case documentado tiene su resultado
+   esperado y una prioridad. Umbral: prioridad alta y media en 100% verde, baja en 75%. Si uno
+   de prioridad alta cae, el cambio se revierte.
+3. **Backups de MongoDB medibles.** Hoy son manuales. Propuesta: backup programado con una
+   verificación de restauración, no solo de que el archivo exista.
 
 ## Limitaciones conocidas
 
-1. Race conditions
-
-- Qué es: Si un usuario escribe en una ventana de 3 segundos aproximadamente 2 o más mensajes, ej: "hola", "buenos días". Aurora procesará cada mensaje por separado, no como conjunto, esto resulta en una respuesta para "hola" y otra respuesta para "buenos días" siendo redundante y dando la sensación de que no leyó lo primero para el usuario.
-- Estado actual: Ya se posee una propuesta que contempla el uso de MongoDB con lógica de Debounce como opción primaria. Otra opción viable considerada es usar Redis.
-- Impacto: Medio
-
-2. Sin integración de CRM
-
-- Qué es: Actualmente no se tiene una integración con ningún CRM, por lo que los leads obtenidos por Aurora se almacenan en MongoDB en colecciones siendo esta la única forma de acceder a ellos actualmente.
-- Estado actual: Los leads se pueden exportar desde MongoDB, pero no hay una integración directa con ningún CRM ni un proceso claro para manejar el formateo, limpieza y exportación de los datos.
-- Impacto: Bajo
-
-3. Un único PDF para la KB (knowledge base)
-
-- Qué es: El sistema actualmente tiene la capacidad de recibir, analizar y vectorizar documentos PDF con la información necesaria que usará posteriormente para responder preguntas de manera adecuada mediante el uso de RAG. No está hecho o pensado para vectorizar múltiples documentos y/o múltiples formatos ya que en este caso no era necesario.
-- Estado actual: Es suficiente dado el scope actual, si el scope cambia, se considerarían otras opciones más adelante.
-- Impacto: Bajo
+1. **Condición de carrera.** Si una persona manda dos mensajes en menos de 3 segundos, se
+   procesan por separado y el segundo puede no ver el primero. No corrompe perfiles: desordena
+   el contexto. Hay un diseño de debounce (buffer en MongoDB) que no está activo, porque va en
+   la entrada del workflow, el punto donde un error alcanza a todos los usuarios.
+   Impacto: medio.
+2. **Base de conocimiento duplicada.** En agosto la colección llegó al doble de documentos de
+   los esperados, así que la mitad del top 4 eran copias. Abierto. Impacto: medio.
+3. **Agente no determinista.** 42% de las etiquetas cambian entre corridas idénticas. Se mitiga
+   decidiendo con ceros y con el banco de evals, no con una corrida. Impacto: medio.
+4. **Sin integración de CRM.** Los leads quedan en MongoDB y llegan al equipo por Slack; no hay
+   exportación automática. Impacto: bajo.
+5. **Un solo documento en la KB.** Suficiente para el alcance actual; múltiples documentos y
+   formatos se evaluarían si el alcance cambia. Impacto: bajo.
