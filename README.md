@@ -120,8 +120,10 @@ Lo que falta:
    el contexto. Hay un diseño de debounce (buffer en MongoDB) que no está activo, porque va en
    la entrada del workflow, el punto donde un error alcanza a todos los usuarios.
    Impacto: medio.
-2. **Base de conocimiento duplicada.** En agosto la colección llegó al doble de documentos de
-   los esperados, así que la mitad del top 4 eran copias. Abierto. Impacto: medio.
+2. **Campo de intención contaminado.** El campo que guarda la intención del usuario recibe
+   etiquetas largas o de versiones anteriores del extractor. No afecta el enrutamiento, que va
+   por la etiqueta del agente, pero rompe la analítica por intención: todas las cifras se cuentan
+   por etiqueta. Abierto. Impacto: bajo.
 3. **Agente no determinista.** 42% de las etiquetas cambian entre corridas idénticas. Se mitiga
    decidiendo con ceros y con el banco de evals, no con una corrida. Impacto: medio.
 4. **Sin integración de CRM.** Los leads quedan en MongoDB y llegan al equipo por Slack; no hay
