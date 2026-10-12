@@ -73,25 +73,49 @@ las ventajas de una base relacional sobre PostgreSQL.
 
 ## Agosto 2026: tres problemas en producción
 
-**1. Usuarios con nombre de usuario.** Meta introdujo usernames y el webhook dejó de traer el
-teléfono de esas personas. Siete nodos leían el webhook directo y uno lanzaba una excepción:
-la persona escribía y no recibía nada. Un identificador vacío compartido habría mezclado
-conversaciones de personas distintas. El arreglo resolvió la identidad en un solo punto y
-movió el envío a HTTP Request. Una primera regla ("si llega BSUID, no hay teléfono") se
-descartó con payloads reales, porque el BSUID llega siempre. Resultado: 18 personas atendidas
-que antes no habrían recibido respuesta, 13 de las 27 de septiembre.
+### 1. Personas con nombre de usuario
 
-**2. La base de conocimiento le ganaba al prompt.** Se perdían leads porque el agente no
-emitía la etiqueta de cierre. El primer arreglo fue en el prompt, y el banco de evals lo midió:
-30 a 36 aciertos de 66, dentro del 42% de varianza entre corridas, o sea sin conclusión. Los
-ceros sí concluyeron: dos casos fallaron 3 de 3 en las dos corridas, ignorando la instrucción
-12 de 12 veces. El arreglo pasó a la KB, re-cortada por par pregunta/respuesta (antes se cortaba
-a ciegas cada 1000 caracteres). El re-corte destapó 4 chunks que nunca llegaban al agente.
+- **Qué pasó:** WhatsApp empezó a dejar que la gente escriba con un nombre de usuario, sin
+  mostrar su número. Aurora reconocía a cada persona por su número, así que a esas personas
+  no les respondía nada.
+- **El riesgo mayor:** varias personas sin número podían quedar con la misma identificación
+  vacía y ver conversaciones que no eran suyas.
+- **Arreglo:** la identidad se resuelve en un solo punto: el número si existe y, si no, el
+  código que WhatsApp le asigna a cada usuario. Las respuestas se mandan por otra vía, porque
+  la herramienta original de n8n solo sabía escribirle a números.
+- **Lo que no funcionó:** la primera regla fue "si llega el código, no hay número". Probando
+  con mensajes reales se vio que el código llega siempre, así que se descartó.
+- **Resultado:** 18 personas atendidas que antes no habrían recibido respuesta. En
+  septiembre fueron 13 de 27.
 
-**3. Incidente: bucle de acuses.** Una rama de fallback atrapaba los acuses de estado de Meta,
-respondía, y cada respuesta generaba tres acuses nuevos. Se contuvo el mismo día y se arregló
-con una regla explícita sobre el tipo de mensaje. Lección: se verificaba que la API respondía
-200, no que el chat recibiera la respuesta.
+### 2. La base de conocimiento le ganaba a las instrucciones
+
+- **Qué pasó:** algunas personas daban todos sus datos y Aurora no le avisaba al equipo. Se
+  perdían interesados.
+- **Primer intento:** corregir las instrucciones del agente. Con 66 conversaciones de prueba
+  subió de 30 a 36 aciertos, pero el agente cambia casi la mitad de sus respuestas aunque
+  reciba lo mismo, así que esa mejora no probaba nada.
+- **Lo que sí probó algo:** dos casos fallaron 12 de 12 veces, aunque la instrucción decía
+  exactamente qué hacer. Si falla siempre no es azar: el texto de la base de conocimiento que
+  leía en ese momento pesaba más que la instrucción.
+- **Arreglo:** reorganizar la base. Antes se cortaba en pedazos de 1000 caracteres sin mirar
+  el contenido y separaba preguntas de sus respuestas. Ahora cada pedazo es una pregunta con
+  su respuesta completa.
+- **Hallazgo extra:** 4 pedazos nunca llegaban al agente (los contenidos de los niveles A1 a B2).
+
+### 3. Incidente: bucle de avisos de entrega y lectura
+
+- **De dónde salió:** no existía antes. Lo introdujeron los cambios de la misma intervención
+  del punto 1: al rediseñar el workflow se agregó una regla para responder "todo lo que no sea
+  texto ni audio", pensada para fotos y documentos.
+- **Qué pasó:** WhatsApp le avisa al sistema cada vez que un mensaje se entrega o se lee (los
+  chulitos). Esos avisos cayeron en la regla nueva y Aurora les respondía como si fueran
+  mensajes. Cada respuesta generaba avisos nuevos, que volvían a entrar, y se multiplicó en
+  cadena hasta que WhatsApp y Slack lo bloquearon por exceso.
+- **Arreglo:** el mismo día se apagó la regla. Después se cambió para que solo responda a
+  fotos y documentos, que traen un tipo de mensaje; los avisos no lo traen.
+- **Lección:** la prueba revisaba que WhatsApp contestara "recibido" (código 200), no que la
+  persona viera la respuesta en su chat. Ahora se verifica mirando el chat.
 
 ## Qué mediría distinto con evals
 
