@@ -12,8 +12,7 @@ una vez:
 
 - **2.066 mensajes** de **339 personas**
 - **98,9% de autonomía**: 23 mensajes (de 14 personas) pasaron al equipo. Ningún mes bajó de 97,5%.
-- **81 personas interesadas** entregadas al equipo: 52 pidieron clase demo, 20 familias dejaron
-  sus datos para el programa infantil y 13 pidieron inscripción directa
+- **81 personas interesadas** entregadas al equipo: 52 pidieron clase demo, 20 familias dejaron sus datos para el programa infantil y 13 pidieron inscripción directa
 - **$21.757.000 COP de ingreso potencial**: personas con datos completos para inscribirse,
   a precio de matrícula. No son pagos confirmados.
 - **Hora pico: 11 am.** El grueso entra en plena jornada de clases: el valor del agente es la
